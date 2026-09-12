@@ -6,10 +6,22 @@ import Car from "../models/Car.js"
 const checkAvailability = async(car,pickupDate,returnDate)=>{
     const bookings = await Booking.find({
         car,
+        status:{$ne:"cancelled"},
         pickupDate:{$lte:returnDate},
         returnDate:{$gte:pickupDate},
     })
     return bookings.length === 0 
+}
+
+// NEW: session-aware version used only inside the transaction
+const checkAvailabilityInSession = async(car,pickupDate,returnDate,session)=>{
+    const overlap = await Booking.findOne({
+        car,
+        status:{$ne:"cancelled"},
+        pickupDate:{$lte:returnDate},
+        returnDate:{$gte:pickupDate},
+    }).session(session)
+    return !overlap
 }
 
 // API to check Availability of cars for the given Date and location
@@ -39,33 +51,44 @@ export const checkAvailabilityofCar = async(req,res)=>{
 
 // API to create Booking
 export const createBooking = async (req,res)=>{
+    const session = await mongoose.startSession()
     try {
         const {_id} = req.user
         const {car,pickupDate,returnDate}= req.body
 
-        const isAvailable = await checkAvailability(car,pickupDate,returnDate)
+        session.startTransaction()
+
+        const isAvailable = await checkAvailabilityInSession(car,pickupDate,returnDate,session)
         if(!isAvailable){
+            await session.abortTransaction()
+            session.endSession()
             return res.json({success:false,message:"Car is not available"})
         }
 
-        const carData = await Car.findById(car)
+        const carData = await Car.findById(car).session(session)
 
-        //calculate price based on pickupDate and returnDate
-        const picked = new Date(pickupDate);
-        const returned = new Date(returnDate);
+        const picked = new Date(pickupDate)
+        const returned = new Date(returnDate)
         const noOfDays = Math.ceil((returned - picked)/(1000 * 60 * 60 * 24))
-        const price = carData.pricePerDay*noOfDays;
+        const price = carData.pricePerDay*noOfDays
 
-        await Booking.create({car,owner:carData.owner,user:_id,pickupDate,returnDate,price,})
+        await Booking.create(
+            [{car,owner:carData.owner,user:_id,pickupDate,returnDate,price}],
+            {session}
+        )
+
+        await session.commitTransaction()
+        session.endSession()
+
         res.json({success:true,message:"Booking created"})
 
     } catch (error) {
-
-        console.log(error.message);
-        res.json({success:false,message:error.message})   
+        await session.abortTransaction()
+        session.endSession()
+        console.log(error.message)
+        res.json({success:false,message:error.message})
     }
 }
-
 //API to list user bookings
 export const getUserBookings = async (req,res)=>{
     try {
