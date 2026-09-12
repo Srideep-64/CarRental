@@ -1,3 +1,4 @@
+import mongoose from "mongoose"
 import Booking from "../models/Booking.js"
 import Car from "../models/Car.js"
 
