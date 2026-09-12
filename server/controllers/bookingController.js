@@ -59,8 +59,13 @@ export const createBooking = async (req,res)=>{
     try {
         await BookingLock.create({ car })
     } catch (lockError) {
-        // duplicate key error = someone else is booking this car right now
-        return res.json({success:false,message:"Car is being booked by someone else, please try again"})
+        if (lockError.code === 11000) {
+            // genuine duplicate key = someone else holds the lock
+            return res.json({success:false,message:"Car is being booked by someone else, please try again"})
+        }
+        // anything else is a REAL bug — don't hide it
+        console.log("Lock creation failed:", lockError)
+        return res.json({success:false,message:"Something went wrong, please try again"})
     }
 
     try {
