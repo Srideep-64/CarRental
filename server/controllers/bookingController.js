@@ -55,6 +55,15 @@ export const createBooking = async (req,res)=>{
     const {_id} = req.user
     const {car,pickupDate,returnDate}= req.body
 
+    const carData = await Car.findById(car)
+        if(!carData){
+            return res.json({success:false,message:"Car not found"})
+        }
+
+        if(carData.owner.toString() === _id.toString()){
+        return res.json({success:false,message:"You cannot book your own car"})
+    }
+
     // 1. Try to acquire the lock — fails instantly if someone else holds it
     try {
         await BookingLock.create({ car })
@@ -73,11 +82,6 @@ export const createBooking = async (req,res)=>{
         const isAvailable = await checkAvailability(car,pickupDate,returnDate)
         if(!isAvailable){
             return res.json({success:false,message:"Car is not available"})
-        }
-
-        const carData = await Car.findById(car)
-        if(!carData){
-            return res.json({success:false,message:"Car not found"})
         }
 
         const picked = new Date(pickupDate)
