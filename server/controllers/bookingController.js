@@ -1,7 +1,7 @@
 import mongoose from "mongoose"
 import Booking from "../models/Booking.js"
 import Car from "../models/Car.js"
-
+import BookingLock from "../models/BookingLock.js"
 
 //Function to Check Availability of Car for a given Date
 const checkAvailability = async(car,pickupDate,returnDate)=>{
