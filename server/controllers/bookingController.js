@@ -52,44 +52,47 @@ export const checkAvailabilityofCar = async(req,res)=>{
 
 // API to create Booking
 export const createBooking = async (req,res)=>{
-    const session = await mongoose.startSession()
+    const {_id} = req.user
+    const {car,pickupDate,returnDate}= req.body
+
+    // 1. Try to acquire the lock — fails instantly if someone else holds it
     try {
-        const {_id} = req.user
-        const {car,pickupDate,returnDate}= req.body
+        await BookingLock.create({ car })
+    } catch (lockError) {
+        // duplicate key error = someone else is booking this car right now
+        return res.json({success:false,message:"Car is being booked by someone else, please try again"})
+    }
 
-        session.startTransaction()
-
-        const isAvailable = await checkAvailabilityInSession(car,pickupDate,returnDate,session)
+    try {
+        // 2. Now safely check availability — no one else can be in this block for this car
+        const isAvailable = await checkAvailability(car,pickupDate,returnDate)
         if(!isAvailable){
-            await session.abortTransaction()
-            session.endSession()
             return res.json({success:false,message:"Car is not available"})
         }
 
-        const carData = await Car.findById(car).session(session)
+        const carData = await Car.findById(car)
+        if(!carData){
+            return res.json({success:false,message:"Car not found"})
+        }
 
         const picked = new Date(pickupDate)
         const returned = new Date(returnDate)
         const noOfDays = Math.ceil((returned - picked)/(1000 * 60 * 60 * 24))
         const price = carData.pricePerDay*noOfDays
 
-        await Booking.create(
-            [{car,owner:carData.owner,user:_id,pickupDate,returnDate,price}],
-            {session}
-        )
-
-        await session.commitTransaction()
-        session.endSession()
+        await Booking.create({car,owner:carData.owner,user:_id,pickupDate,returnDate,price})
 
         res.json({success:true,message:"Booking created"})
 
     } catch (error) {
-        await session.abortTransaction()
-        session.endSession()
         console.log(error.message)
         res.json({success:false,message:error.message})
+    } finally {
+        // 3. ALWAYS release the lock, whether we succeeded, failed, or threw
+        await BookingLock.deleteOne({ car })
     }
 }
+
 //API to list user bookings
 export const getUserBookings = async (req,res)=>{
     try {
